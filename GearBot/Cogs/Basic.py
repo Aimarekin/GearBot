@@ -1,6 +1,5 @@
 import asyncio
 import random
-import re
 import time
 from datetime import datetime
 
@@ -9,10 +8,9 @@ from discord.ext import commands
 from discord.ext.commands import clean_content, BadArgument
 
 from Util import Configuration, Pages, HelpGenerator, Permissioncheckers, Emoji, Translator, Utils, GearbotLogging
+from Util.Converters import Message
 from Util.JumboGenerator import JumboGenerator
-from database.DatabaseConnector import LoggedMessage, LoggedAttachment
-
-JUMP_LINK_MATCHER = re.compile(r"https://(?:canary|ptb)?\.?discordapp.com/channels/\d*/(\d*)/(\d*)")
+from database.DatabaseConnector import LoggedAttachment
 
 
 class Basic:
@@ -42,6 +40,7 @@ class Basic:
 
     @commands.command()
     async def about(self, ctx):
+        """about_help"""
         uptime = datetime.utcnow() - self.bot.start_time
         hours, remainder = divmod(int(uptime.total_seconds()), 3600)
         days, hours = divmod(hours, 24)
@@ -84,147 +83,66 @@ class Basic:
 
     @commands.command()
     @commands.bot_has_permissions(embed_links=True)
-    async def quote(self, ctx: commands.Context, *, message_info=""):
+    async def quote(self, ctx: commands.Context, *, message:Message):
         """quote_help"""
-        message_id = None
-        channel_id = None
-        if "-" in message_info:
-            parts = message_info.split("-")
-            if len(parts) is 2:
-                try:
-                    channel_id = int(parts[0].strip(" "))
-                    message_id = int(parts[1].strip(" "))
-                except ValueError:
-                    pass
-            else:
-                parts = message_info.split(" ")
-                if len(parts) is 2:
-                    try:
-                        channel_id = int(parts[0].strip(" "))
-                        message_id = int(parts[1].strip(" "))
-                    except ValueError:
-                        pass
-        else:
-            result = JUMP_LINK_MATCHER.match(message_info)
-            if result is not None:
-                channel_id = result.group(1)
-                message_id = result.group(2)
-            else:
-                try:
-                    message_id = int(message_info)
-                except ValueError:
-                    pass
-        error = None
-        dmessage = None
-        message = None
-        if message_id is None:
-            error = Translator.translate('quote_invalid_format', ctx)
         async with ctx.typing():
-            if message_id is not None:
-                message = LoggedMessage.get_or_none(messageid=message_id)
-            if message is None and message_id is not None:
-                if channel_id is None:
-                    for channel in ctx.guild.text_channels:
-                        try:
-                            permissions = channel.permissions_for(ctx.guild.me)
-                            if permissions.read_messages and permissions.read_message_history:
-                                dmessage = await channel.get_message(message_id)
-                                message = LoggedMessage.create(messageid=message_id, content=dmessage.content,
-                                                               author=dmessage.author.id,
-                                                               channel=channel.id, server=dmessage.guild.id)
-                                for a in dmessage.attachments:
-                                    LoggedAttachment.get_or_create(id=a.id, url=a.url,
-                                                                   isImage=(a.width is not None or a.width is 0),
-                                                                   messageid=message.id)
-                                break
-                        except discord.NotFound:
-                            pass
-                    if message is None:
-                        error = Translator.translate('quote_missing_channel', ctx)
-                else:
-                    channel = self.bot.get_channel(channel_id)
-                    if channel is None:
-                        error = Translator.translate('quote_invalid_format', ctx)
-                    else:
-                        try:
-                            dmessage: discord.Message = await channel.get_message(message_id)
-                        except discord.NotFound as ex:
-                            # wrong channel
-                            pass
-                        else:
-                            message = LoggedMessage.create(messageid=message_id, content=dmessage.content,
-                                                           author=dmessage.author.id,
-                                                           channel=channel.id, server=dmessage.guild.id)
-                            for a in dmessage.attachments:
-                                LoggedAttachment.get_or_create(id=a.id, url=a.url,
-                                                               isImage=(a.width is not None or a.width is 0),
-                                                               messageid=message.id)
-
-            if message is not None:
-                channel = self.bot.get_channel(message.channel)
-                # validate message still exists
-                if dmessage is None:
-                    try:
-                        dmessage = await channel.get_message(message_id)
-                    except discord.NotFound:
-                        error = Translator.translate("quote_not_found", ctx)
-                if dmessage is not None:
-                    # validate user is allowed to quote
-                    member = channel.guild.get_member(ctx.author.id)
-                    if member is None:
-                        error = Translator.translate("quote_not_visible_to_user", ctx)
-                    else:
-                        permissions = channel.permissions_for(member)
-                        if not (permissions.read_message_history and permissions.read_message_history):
-                            error = Translator.translate("quote_not_visible_to_user", ctx)
-            elif error is None:
-                error = Translator.translate("quote_not_found", ctx)
-
-        if error is None:
-            if channel.is_nsfw() and not ctx.channel.is_nsfw():
-                await ctx.send(f"{Emoji.get_chat_emoji('NO')} {Translator.translate('quote_nsfw_refused', ctx)}")
+            member = message.guild.get_member(ctx.author.id)
+            if member is None:
+                await GearbotLogging.send_to(ctx, 'NO', 'quote_not_visible_to_user')
             else:
-                attachment = None
-                attachments = LoggedAttachment.select().where(LoggedAttachment.messageid == message_id)
-                if len(attachments) == 1:
-                    attachment = attachments[0]
-                embed = discord.Embed(colour=discord.Color(0xd5fff),
-                                      timestamp=discord.Object(message.messageid).created_at)
-                if message.content is None or message.content == "":
-                    if attachment is not None:
-                        if attachment.isImage:
-                            embed.set_image(url=attachment.url)
+                permissions = message.channel.permissions_for(member)
+                if permissions.read_message_history and permissions.read_message_history:
+                    if message.channel.is_nsfw() and not ctx.channel.is_nsfw():
+                        await GearbotLogging.send_to(ctx, 'NO', 'quote_nsfw_refused')
+                    else:
+                        attachment = None
+                        attachments = LoggedAttachment.select().where(LoggedAttachment.messageid == message.id)
+                        if len(attachments) == 1:
+                            attachment = attachments[0]
+                        embed = discord.Embed(colour=discord.Color(0xd5fff),
+                                              timestamp=message.created_at)
+                        if message.content is None or message.content == "":
+                            if attachment is not None:
+                                if attachment.isImage:
+                                    embed.set_image(url=attachment.url)
+                                else:
+                                    embed.add_field(name=Translator.translate("attachment_link", ctx),
+                                                    value=attachment.url)
                         else:
-                            embed.add_field(name=Translator.translate("attachment_link", ctx), value=attachment.url)
+                            description = message.content
+                            embed = discord.Embed(colour=discord.Color(0xd5fff), description=description,
+                                                  timestamp=message.created_at)
+                            embed.add_field(name="​",
+                                            value=f"[Jump to message]({message.jump_url})")
+                            if attachment is not None:
+                                if attachment.isImage:
+                                    embed.set_image(url=attachment.url)
+                                else:
+                                    embed.add_field(name=Translator.translate("attachment_link", ctx),
+                                                    value=attachment.url)
+                        user = message.author
+                        embed.set_author(name=user.name, icon_url=user.avatar_url)
+                        embed.set_footer(
+                            text=Translator.translate("quote_footer", ctx,
+                                                      channel=message.channel.name,
+                                                      user=Utils.clean_user(ctx.author), message_id=message.id))
+                        await ctx.send(embed=embed)
+                        if ctx.channel.permissions_for(ctx.me).manage_messages:
+                            await ctx.message.delete()
+
                 else:
-                    description = message.content
-                    embed = discord.Embed(colour=discord.Color(0xd5fff), description=description,
-                                          timestamp=datetime.utcfromtimestamp(discord.Object(message_id).created_at))
-                    embed.add_field(name="​",
-                                    value=f"https://discordapp.com/channels/{channel.guild.id}/{channel.id}/{message_id}")
-                    if attachment is not None:
-                        if attachment.isImage:
-                            embed.set_image(url=attachment.url)
-                        else:
-                            embed.add_field(name=Translator.translate("attachment_link", ctx), value=attachment.url)
-                user = channel.guild.get_member(message.author)
-                if user is None:
-                    user = await ctx.bot.get_user_info(message.author)
-                embed.set_author(name=user.name, icon_url=user.avatar_url)
-                embed.set_footer(
-                    text=Translator.translate("quote_footer", ctx, channel=self.bot.get_channel(message.channel).name,
-                                              user=Utils.clean_user(ctx.author), message_id=message_id))
-                await ctx.send(embed=embed)
-                if ctx.channel.permissions_for(ctx.me).manage_messages:
-                    await ctx.message.delete()
-        else:
-            await ctx.send(f"{Emoji.get_chat_emoji('NO')} {error}")
+                    await GearbotLogging.send_to(ctx, 'NO', 'quote_not_visible_to_user')
+
+
+
 
     @commands.command()
     async def coinflip(self, ctx, *, thing: str = ""):
         """coinflip_help"""
         if thing == "":
             thing = Translator.translate("coinflip_default", ctx)
+        else:
+            thing = await Utils.clean(thing, ctx.guild)
         outcome = random.randint(1, 2)
         if outcome == 1 or ("mute" in thing and "vos" in thing):
             await ctx.send(Translator.translate("coinflip_yes", ctx, thing=thing))
@@ -378,6 +296,7 @@ class Basic:
                             number = info['page'] * 10 + i
                             if number >= len(roles):
                                 await GearbotLogging.send_to(channel, "NO", "role_not_on_page", requested=number+1, max=len(roles) % 10, delete_after=10)
+                                return
                             role = guild.get_role(roles[number])
                             if role is None:
                                 return
@@ -385,17 +304,26 @@ class Basic:
                             try:
                                 if role in member.roles:
                                     await member.remove_roles(role)
-                                    await channel.send(
-                                        f"{member.mention} {Translator.translate('role_left', payload.guild_id, role_name=role.name)}",
-                                        delete_after=10)
+                                    added = False
                                 else:
                                     await member.add_roles(role)
-                                    await channel.send(
-                                        f"{member.mention} {Translator.translate('role_joined', payload.guild_id, role_name=role.name)}",
-                                        delete_after=10)
+                                    added = True
                             except discord.Forbidden:
-                                await channel.send(
-                                    f"{Emoji.get_chat_emoji('NO')} {Translator.translate('mute_role_to_high', payload.guild_id, role=role.name)}")
+                                emessage = f"{Emoji.get_chat_emoji('NO')} {Translator.translate('mute_role_to_high', payload.guild_id, role=role.name)}"
+                                try:
+                                    await channel.send(emessage)
+                                except discord.Forbidden:
+                                    try:
+                                        member.send(emessage)
+                                    except discord.Forbidden:
+                                        pass
+                            else:
+                                try:
+                                    action_type = 'role_joined' if added else 'role_left'
+                                    await channel.send(f"{member.mention} {Translator.translate(action_type, payload.guild_id, role_name=role.name)}", delete_after=10)
+                                except discord.Forbidden:
+                                    pass
+
                             if channel.permissions_for(guild.me).manage_messages:
                                 await message.remove_reaction(e, member)
                             break

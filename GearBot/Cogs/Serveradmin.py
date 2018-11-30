@@ -75,7 +75,7 @@ class Serveradmin:
 
     LOGGING_TYPES = [
         "EDIT_LOGS", "NAME_CHANGES", "ROLE_CHANGES", "CENSORED_MESSAGES", "JOIN_LOGS", "MOD_ACTIONS", "COMMAND_EXECUTED",
-        "FUTURE_LOGS"
+        "ROLE_CHANGES", "CHANNEL_CHANGES", "VOICE_CHANGES", "VOICE_CHANGES_DETAILED", "FUTURE_LOGS"
     ]
 
     def __init__(self, bot):
@@ -540,7 +540,7 @@ class Serveradmin:
         channel = self.bot.get_channel(int(cid))
         channels = Configuration.get_var(ctx.guild.id, "LOG_CHANNELS")
         if cid not in channels:
-            await ctx.send(f"{Emoji.get_chat_emoji('NO')} {Translator.translate('no_log_channel', ctx, channel=channel.mention)}")
+            await ctx.send(f"{Emoji.get_chat_emoji('NO')} {Translator.translate('no_log_channel', ctx, channel=f'<{cid}>')}")
         else:
             info = channels[cid]
             removed = []
@@ -561,7 +561,7 @@ class Serveradmin:
                 message += f"{Emoji.get_chat_emoji('YES')} {Translator.translate('logs_disabled_channel', ctx, channel=channel.mention if channel is not None else cid)}{', '.join(removed)}"
 
             if len(ignored) > 0:
-                message += f"\n{Emoji.get_chat_emoji('WARNING')}{Translator.translate('logs_already_disabled_channel', ctx, channel=channel.mention)}{', '.join(ignored)}"
+                message += f"\n{Emoji.get_chat_emoji('WARNING')}{Translator.translate('logs_already_disabled_channel', ctx, channel=channel.mention if channel is not None else cid)}{', '.join(ignored)}"
 
             if len(unable) > 0:
                 message += f"\n {Emoji.get_chat_emoji('NO')}{Translator.translate('logs_unable', ctx)} {', '.join(unable)}"
@@ -571,7 +571,7 @@ class Serveradmin:
 
             if len(info) > 0:
                 embed = discord.Embed(color=6008770)
-                embed.add_field(name=channel.id, value=self.get_channel_properties(ctx, channel.id, channels[cid]))
+                embed.add_field(name=cid, value=self.get_channel_properties(ctx, cid, channels[cid]))
             else:
                 embed=None
             await ctx.send(message, embed=embed)
@@ -759,7 +759,7 @@ class Serveradmin:
     async def blacklist_add(self, ctx, word: str):
         blacklist = Configuration.get_var(ctx.guild.id, "WORD_BLACKLIST")
         if word in blacklist:
-            await GearbotLogging.send_to(ctx, "NO", "already_blacklisted", entry=word)
+            await GearbotLogging.send_to(ctx, "NO", "already_blacklisted", word=word)
         elif len(word) < 3:
             await GearbotLogging.send_to(ctx, "NO", "entry_too_short")
         else:
@@ -771,7 +771,7 @@ class Serveradmin:
     async def blacklist_remove(self, ctx, word: str):
         blacklist = Configuration.get_var(ctx.guild.id, "WORD_BLACKLIST")
         if word not in blacklist:
-            await GearbotLogging.send_to(ctx, "NO", "not_blacklisted", entry=word)
+            await GearbotLogging.send_to(ctx, "NO", "not_blacklisted", word=word)
         else:
             blacklist.remove(word)
             await GearbotLogging.send_to(ctx, "YES", "entry_removed", entry=word)

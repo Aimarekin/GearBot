@@ -62,6 +62,7 @@ async def onReady(bot: commands.Bot, channelID):
             await e
         STARTUP_ERRORS = []
 
+
 def initialize_pump(bot):
     global LOG_PUMP
     LOG_PUMP = LogPump(bot)
@@ -132,20 +133,17 @@ def log_to(guild_id, type, message=None, embed=None, file=None, can_stamp=True, 
             pushed_cleaner = True
 
 
-
 async def send_to(destination, emoji, message, delete_after=None, translate=True, **kwargs):
     translated = Translator.translate(message, destination.guild, **kwargs) if translate else message
     return await destination.send(f"{Emoji.get_chat_emoji(emoji)} {translated}", delete_after=delete_after)
+
 
 async def message_owner(bot, message):
     if bot.owner_id is None:
         app = await bot.application_info()
         bot.owner_id = app.owner.id
     owner = bot.get_user(bot.owner_id)
-    dm_channel = owner.dm_channel
-    if dm_channel is None:
-        await owner.create_dm()
-    await owner.dm_channel.send(message)
+    await owner.send(message)
 
 
 class LogPump:
@@ -180,11 +178,14 @@ class LogPump:
                                     embed is not None and not permissions.embed_links) or (
                                     file is not None and not permissions.attach_files):
                                 todo.pop(0)
-                                cleaners.append(cleaner)
+                                if cleaner is not None:
+                                    cleaners.append(cleaner)
                                 continue
                             elif len(to_send) + len(message) <= 1999:
                                 to_send += f"{message}\n"
                                 todo.pop(0)
+                                if cleaner is not None:
+                                    cleaners.append(cleaner)
                             else:
                                 break
                             if embed is not None or file is not None:
@@ -193,10 +194,9 @@ class LogPump:
                             senders.append(channel.send(to_send if to_send != "" else None, embed=embed, file=file))
                         except Exception as e:
                             await GlobalHandlers.handle_exception("LOG PUMP", BOT, e,
-                                                                  kwargs=dict(cid=cid, todo=todo, to_send=to_send,
-                                                                              LOG_CACHE=self.todo, embed=embed,
-                                                                              file=file,
-                                                                              empty=empty))
+                                                                  cid=cid, todo=todo, to_send=to_send,
+                                                                  LOG_CACHE=self.todo, embed=embed,
+                                                                  file=file, empty=empty)
                     else:
                         empty.append(cid)
                 for e in empty:
@@ -209,18 +209,18 @@ class LogPump:
                     except Exception as e:
                         await log_error()
                         await GlobalHandlers.handle_exception("LOG PUMP", BOT, e,
-                                                              kwargs=dict(cid=cid, todo=todo, to_send=to_send,
-                                                                          LOG_CACHE=self.todo, embed=embed, file=file,
-                                                                          empty=empty))
+                                                              cid=cid, todo=todo, to_send=to_send,
+                                                              LOG_CACHE=self.todo, embed=embed, file=file,
+                                                              empty=empty)
                 for c in cleaners:
                     c()
                 await asyncio.sleep(0.1)
             except Exception as e:
                 await log_error()
                 await GlobalHandlers.handle_exception("LOG PUMP", BOT, e,
-                                                      kwargs=dict(cid=cid, todo=todo, to_send=to_send,
-                                                                  LOG_CACHE=self.todo, embed=embed, file=file,
-                                                                  empty=empty))
+                                                      cid=cid, todo=todo, to_send=to_send,
+                                                      LOG_CACHE=self.todo, embed=embed, file=file,
+                                                      empty=empty)
         info("Log pump terminated")
 
     def receive(self, cid, data):
@@ -238,4 +238,3 @@ async def log_error():
         LOG_PUMP.NUKED = True
         initialize_pump(BOT)
         await bot_log("Log pump got clogged, nuked and restarted, moving on")
-

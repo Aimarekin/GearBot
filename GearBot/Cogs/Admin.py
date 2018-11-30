@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from Util import GearbotLogging, Utils, Configuration, Pages, Emoji
+from Util.Converters import UserID
 
 
 class Admin:
@@ -81,7 +82,7 @@ class Admin:
         async with ctx.typing():
             Configuration.load_master()
             await Configuration.on_ready(self.bot)
-            await ctx.send("Configs reloaded")
+        await ctx.send("Configs reloaded")
 
     @commands.command(hidden=True)
     async def eval(self, ctx:commands.Context, *, code: str):
@@ -142,7 +143,7 @@ class Admin:
     @commands.command(hidden=True)
     async def post_info(self, ctx, name):
         with open(f"{name}.txt", "r") as file:
-            pages =  Pages.paginate("".join(file.readlines()), 500, 2000)
+            pages = Pages.paginate("".join(file.readlines()), 500, 2000)
             await ctx.channel.purge(limit=len(pages) + 2)
             await ctx.send(file=discord.File(f"{name}.png"))
             for page in pages:
@@ -151,6 +152,15 @@ class Admin:
     @commands.command()
     async def set_presence(self, ctx, name):
         await self.bot.change_presence(status=name, activity=ctx.me.activity)
+
+    @commands.command()
+    async def mutuals(self, ctx, user:UserID):
+        mutuals = []
+        for guild in self.bot.guilds:
+            if guild.get_member(user) is not None:
+                mutuals.append(guild)
+        for page in Pages.paginate("\n".join(f"{guild.id} - {guild.name}" for guild in mutuals), prefix="```py\n", suffix="```"):
+            await ctx.send(page)
 
 
 

@@ -139,9 +139,11 @@ async def on_message(bot, message:discord.Message):
 async def on_guild_join(guild: discord.Guild):
     GearbotLogging.info(f"A new guild came up: {guild.name} ({guild.id}).")
     Configuration.load_config(guild.id)
+    await GearbotLogging.bot_log(f"{Emoji.get_chat_emoji('JOIN')} A new guild came up: {guild.name} ({guild.id}).", embed=Utils.server_info(guild))
 
 async def on_guild_remove(guild: discord.Guild):
-    GearbotLogging.info(f"i was removed from a guild: {guild.name} ({guild.id}).")
+    GearbotLogging.info(f"I was removed from a guild: {guild.name} ({guild.id}).")
+    await GearbotLogging.bot_log(f"{Emoji.get_chat_emoji('LEAVE')} I was removed from a guild: {guild.name} ({guild.id}).", embed=Utils.server_info(guild))
 
 async def on_command_error(bot, ctx: commands.Context, error):
     if isinstance(error, commands.NoPrivateMessage):
@@ -193,7 +195,7 @@ def extract_info(o):
 
 async def on_error(bot, event, *args, **kwargs):
     t, exception, info = sys.exc_info()
-    await handle_exception("Event handler failure", bot, exception, event, args=args, kwargs=kwargs)
+    await handle_exception("Event handler failure", bot, exception, event, None, None, *args, **kwargs)
 
 async def handle_database_error(bot):
     GearbotLogging.error(traceback.format_exc())
@@ -250,7 +252,7 @@ async def handle_database_error(bot):
 
 
 
-async def handle_exception(exception_type, bot, exception, event=None, message=None, ctx = None, args = (), kwargs = dict()):
+async def handle_exception(exception_type, bot, exception, event=None, message=None, ctx = None, *args, **kwargs):
     bot.errors = bot.errors + 1
 
     embed = discord.Embed(colour=discord.Colour(0xff0000),
@@ -269,7 +271,7 @@ async def handle_exception(exception_type, bot, exception, event=None, message=N
         arg_info = "No arguments"
 
     kwarg_info = ""
-    for name, arg in dict(**kwargs).items():
+    for name, arg in kwargs.items():
         kwarg_info += "{}: {}\n".format(name, extract_info(arg))
     if kwarg_info == "":
         kwarg_info = "No keyword arguments"
@@ -300,7 +302,7 @@ async def handle_exception(exception_type, bot, exception, event=None, message=N
             content = "<no content>"
         else:
             content = message.content
-        embed.add_field(name="Original message", value=content, inline=False)
+        embed.add_field(name="Original message", value=Utils.trim_message(content, 1000), inline=False)
 
         lines.append("======================ORIGINAL MESSAGE (DETAILED)======================")
         lines.append(extract_info(message))

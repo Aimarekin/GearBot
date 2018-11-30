@@ -61,7 +61,15 @@ def v3(config):
     return config
 
 def v4(config):
-    del config["CENSOR_LOGS"]
+    if "CENSOR_LOGS" in config.keys():
+        del config["CENSOR_LOGS"]
+    for cid, info in config["LOG_CHANNELS"].items():
+        if "FUTURE_LOGS" in info:
+            info.append("ROLE_CHANGES")
+            info.append("CHANNEL_CHANGES")
+            info.append("VOICE_CHANGES")
+            info.append("VOICE_CHANGES_DETAILED")
+    return config
 
 
 # migrators for the configs, do NOT increase the version here, this is done by the migration loop
@@ -117,7 +125,7 @@ def update_config(guild, config):
         Utils.saveToDisk(f"{d}/{guild}", config)
         config = MIGRATORS[config["VERSION"]](config)
         config["VERSION"] += 1
-        Utils.saveToDisk(guild, config)
+        Utils.saveToDisk(f"config/{guild}", config)
 
     return config
 

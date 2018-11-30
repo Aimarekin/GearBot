@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import os
 import re
@@ -9,7 +10,7 @@ from subprocess import Popen
 import discord
 from discord import NotFound
 
-from Util import GearbotLogging
+from Util import GearbotLogging, Translator
 
 BOT = None
 cache_task = None
@@ -86,31 +87,32 @@ ROLE_ID_MATCHER = re.compile("<@&([0-9]+)>")
 CHANNEL_ID_MATCHER = re.compile("<#([0-9]+)>")
 URL_MATCHER = re.compile(r'((?:https?://)[a-z0-9]+(?:[-.][a-z0-9]+)*\.[a-z]{2,5}(?::[0-9]{1,5})?(?:/[^ \n]*)?)', re.IGNORECASE)
 
-async def clean_message(text: str, guild:discord.Guild):
-    start = time.perf_counter()
-    # resolve user mentions
-    for uid in set(ID_MATCHER.findall(text)):
-        name = "@" + await username(int(uid), False)
-        text = text.replace(f"<@{uid}>", name)
-        text = text.replace(f"<@!{uid}>", name)
+async def clean(text, guild:discord.Guild=None):
+    text = str(text)
+    if guild is not None:
+        # resolve user mentions
+        for uid in set(ID_MATCHER.findall(text)):
+            name = "@" + await username(int(uid), False)
+            text = text.replace(f"<@{uid}>", name)
+            text = text.replace(f"<@!{uid}>", name)
 
-    # resolve role mentions
-    for uid in set(ROLE_ID_MATCHER.findall(text)):
-        role = discord.utils.get(guild.roles, id=int(uid))
-        if role is None:
-            name = "@UNKNOWN ROLE"
-        else:
-            name = "@" + role.name
-        text = text.replace(f"<@&{uid}>", name)
-
-        # resolve channel names
-        for uid in set(CHANNEL_ID_MATCHER.findall(text)):
-            channel = guild.get_channel(uid)
-            if channel is None:
-                name = "#UNKNOWN CHANNEL"
+        # resolve role mentions
+        for uid in set(ROLE_ID_MATCHER.findall(text)):
+            role = discord.utils.get(guild.roles, id=int(uid))
+            if role is None:
+                name = "@UNKNOWN ROLE"
             else:
-                name = "#" + channel.name
-            text = text.replace(f"<@#{uid}>", name)
+                name = "@" + role.name
+            text = text.replace(f"<@&{uid}>", name)
+
+            # resolve channel names
+            for uid in set(CHANNEL_ID_MATCHER.findall(text)):
+                channel = guild.get_channel(uid)
+                if channel is None:
+                    name = "#UNKNOWN CHANNEL"
+                else:
+                    name = "#" + channel.name
+                text = text.replace(f"<@#{uid}>", name)
 
 
     for c in ("\\", "`", "*", "_", "~", "<"):
@@ -123,14 +125,13 @@ async def clean_message(text: str, guild:discord.Guild):
 
     # make sure we don't have funny guys/roles named "everyone" messing it all up
     text = text.replace("@", "@\u200b")
-
-    t = round((time.perf_counter() - start) * 1000, 2)
-    GearbotLogging.info(f"Cleaned a message in {t}ms")
     return text
 
 
 
 def clean_name(text):
+    if text is None:
+        return None
     return text.replace("@","@\u200b").replace("`", "")
 
 
@@ -146,18 +147,21 @@ async def username(uid, fetch=True):
 
 
 async def get_user(uid, fetch=True):
-    if uid in known_invalid_users:
-        return None
-    if uid in user_cache:
-        return user_cache[uid]
     user = BOT.get_user(uid)
-    if user is None and fetch:
-        try:
-            user = await BOT.get_user_info(uid)
-            user_cache[uid] = user
-        except NotFound:
-            known_invalid_users.append(uid)
+    if user is None:
+        if uid in known_invalid_users:
             return None
+
+        if uid in user_cache:
+            return user_cache[uid]
+
+        if fetch:
+            try:
+                user = await BOT.get_user_info(uid)
+                user_cache[uid] = user
+            except NotFound:
+                known_invalid_users.append(uid)
+                return None
     return user
 
 
@@ -178,3 +182,38 @@ def find_key(data, wanted):
     for k, v in data.items():
         if v == wanted:
             return k
+
+
+def server_info(guild):
+    guild_features = ", ".join(guild.features)
+    if guild_features == "":
+        guild_features = None
+    guild_made = guild.created_at.strftime("%d-%m-%Y")
+    embed = discord.Embed(color=0x7289DA, timestamp=datetime.datetime.fromtimestamp(time.time()))
+    embed.set_thumbnail(url=guild.icon_url)
+    embed.add_field(name=Translator.translate('name', guild), value=guild.name, inline=True)
+    embed.add_field(name=Translator.translate('id', guild), value=guild.id, inline=True)
+    embed.add_field(name=Translator.translate('owner', guild), value=guild.owner, inline=True)
+    embed.add_field(name=Translator.translate('members', guild), value=guild.member_count, inline=True)
+    embed.add_field(name=Translator.translate('text_channels', guild), value=str(len(guild.text_channels)),
+                    inline=True)
+    embed.add_field(name=Translator.translate('voice_channels', guild), value=str(len(guild.voice_channels)),
+                    inline=True)
+    embed.add_field(name=Translator.translate('total_channel', guild),
+                    value=str(len(guild.text_channels) + len(guild.voice_channels)),
+                    inline=True)
+    embed.add_field(name=Translator.translate('created_at', guild),
+                    value=f"{guild_made} ({(datetime.datetime.fromtimestamp(time.time()) - guild.created_at).days} days ago)",
+                    inline=True)
+    embed.add_field(name=Translator.translate('vip_features', guild), value=guild_features, inline=True)
+    if guild.icon_url != "":
+        embed.add_field(name=Translator.translate('server_icon', guild),
+                        value=f"[{Translator.translate('server_icon', guild)}]({guild.icon_url})", inline=True)
+    roles = ", ".join(role.name for role in guild.roles)
+    embed.add_field(name=Translator.translate('all_roles', guild),
+                    value=roles if len(roles) < 1024 else f"{len(guild.roles)} roles", inline=True)
+    if guild.emojis:
+        emoji = "".join(str(e) for e in guild.emojis)
+        embed.add_field(name=Translator.translate('emoji', guild),
+                        value=emoji if len(emoji) < 1024 else f"{len(guild.emojis)} emoji")
+    return embed
