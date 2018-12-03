@@ -8,9 +8,9 @@ from discord.ext import commands
 from discord.ext.commands import clean_content, BadArgument
 
 from Util import Configuration, Pages, HelpGenerator, Permissioncheckers, Emoji, Translator, Utils, GearbotLogging
-from Util.Converters import Message
+from Util.Converters import Message, Duration
 from Util.JumboGenerator import JumboGenerator
-from database.DatabaseConnector import LoggedAttachment
+from database.DatabaseConnector import LoggedAttachment, Reminder, ReminderStatus
 
 
 class Basic:
@@ -27,6 +27,8 @@ class Basic:
         Pages.register("help", self.init_help, self.update_help)
         Pages.register("role", self.init_role, self.update_role)
         self.running = True
+        self.handling = set()
+        self.bot.loop.create_task(self.timed_actions())
         self.bot.loop.create_task(self.taco_eater())
 
     def __unload(self):
@@ -260,6 +262,14 @@ class Basic:
         """Jumbo emoji"""
         await JumboGenerator(ctx, emojis).generate()
 
+    @commands.command()
+    async def remind(self, ctx, durationNumber: int, durationIdentifier: Duration, *, to_remind:str):
+        """remind_help"""
+        if len(to_remind) > 1800:
+            await ctx.send(f"{Emoji.get_chat_emoji('NO')} {Translator.translate('remind_too_large', ctx.guild.id)}")
+        else:
+            pass
+
     async def on_guild_role_delete(self, role: discord.Role):
         roles = Configuration.get_var(role.guild.id, "SELF_ROLES")
         if role.id in roles:
@@ -327,6 +337,45 @@ class Basic:
                             if channel.permissions_for(guild.me).manage_messages:
                                 await message.remove_reaction(e, member)
                             break
+
+    async def timed_actions(self):
+        GearbotLogging.info("Started timed reminder action background task")
+        while self.running:
+            now = datetime.datetime.fromtimestamp(time.time())
+            limit = datetime.datetime.fromtimestamp(time.time() + 30)
+
+            for reminder in Reminder.select().where(Reminder.status == ReminderStatus.Pending.value, Reminder.end <= limit):
+
+                if reminder.id not in self.handling:
+                    self.handling.add(reminder.id)
+                    self.bot.loop.create_task(
+                        self.run_after((item.end - now).total_seconds(), remind_reminder(reminder)))
+            await asyncio.sleep(10)
+        GearbotLogging.info("Timed reminder actions background task terminated")
+
+    async def remind_reminder(self, reminder):
+        user = await Utils.get_user(reminder.user_id)
+        if reminder.channel_id:
+            channel = await Utils.get_channel(reminder.channel_id)
+        else:
+            channel = None
+        try:
+            if channel:
+                await channel.send(f":alarm_clock: {Translator.translate('remind_message_dm', channel.guild.id, start=str(reminder.start), end = str(reminder.end), reminder = reminder.to_remind)}")
+            else:
+                await user.send(f":alarm_clock: ***Reminder!***\n\nYou told me the {reminder.start} to remind you the {reminder.end} UTC that:\n```{reminder.to_remind}```")
+        except discord.Forbidden:
+            if not channel:
+                GearbotLogging.info(f"Got a reminder for {reminder.id}, but I am not able to DM him nor find the channel he requested the reminder in!")
+            else:
+                try:
+                    await channel.send(f":alarm_clock: {Translator.translate('remind_message_guild', channel.guild.id, mention = user.mention, start=str(reminder.start), end = str(reminder.end), reminder = reminder.to_remind)}")
+                except discord.Forbidden:
+                    GearbotLogging.info(f"Got a reminder for {reminder.id}, but I am not able to DM him nor send messages in the channel he requested the reminder in!")
+                    reminder.status = ReminderStatus.Failed # active
+
+        reminder.save()
+        self.handling.remove(reminder.id)
 
 
 def setup(bot):

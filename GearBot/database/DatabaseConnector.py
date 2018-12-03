@@ -2,12 +2,26 @@ from peewee import *
 
 from Util import Configuration
 
+from enum import Enum
+
 connection = MySQLDatabase(Configuration.get_master_var("DATABASE_NAME"),
                            user=Configuration.get_master_var("DATABASE_USER"),
                            password=Configuration.get_master_var("DATABASE_PASS"),
                            host=Configuration.get_master_var("DATABASE_HOST"),
                            port=Configuration.get_master_var("DATABASE_PORT"), use_unicode=True, charset="utf8mb4")
 
+
+class EnumField(CharField):
+    """This class enables an Enum field for Peewee"""
+    def __init__(self, choices, *args, **kwargs):
+        self.choices = choices
+        super(CharField, self).__init__(*args, **kwargs)
+
+    def db_value(self, value):
+        return value.value
+
+    def python_value(self, value):
+        return self.choices(value)
 
 class LoggedMessage(Model):
     messageid = BigIntegerField(primary_key=True)
@@ -53,6 +67,23 @@ class Infraction(Model):
     class Meta:
         database = connection
 
+class ReminderStatus(Enum):
+    Pending = 1
+    Reminded = 2
+    Failed = 3
+
+class Reminder(Model):
+    id = PrimaryKeyField()
+    user_id = BigIntegerField()
+    channel_id = BigIntegerField()
+    to_remind = CharField(max_length=1800, collation="utf8mb4_general_ci")
+    start = TimestampField()
+    end = TimestampField()
+    status = EnumField(choices = ReminderStatus)
+
+    class Meta:
+        database = connection
+
 
 def init():
     global connection
@@ -62,5 +93,5 @@ def init():
                                host=Configuration.get_master_var("DATABASE_HOST"),
                                port=Configuration.get_master_var("DATABASE_PORT"), use_unicode=True, charset="utf8mb4")
     connection.connect()
-    connection.create_tables([LoggedMessage, CustomCommand, LoggedAttachment, Infraction])
+    connection.create_tables([LoggedMessage, CustomCommand, LoggedAttachment, Infraction, Reminder])
     connection.close()
